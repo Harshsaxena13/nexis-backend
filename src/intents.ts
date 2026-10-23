@@ -74,6 +74,44 @@ export const LlmExtractionSchema = z.object({
 export type LlmAction = z.infer<typeof LlmActionSchema>;
 export type LlmExtraction = z.infer<typeof LlmExtractionSchema>;
 
+const CHAT_ACTION: LlmAction = {
+  type: "chat",
+  location: null,
+  date: { kind: "unspecified", weekday: null, isoDate: null, offsetDays: null },
+  time: { said: false, hour: 0, minute: 0, meridiem: "none", partOfDay: "none" },
+  reminderText: null,
+  calendarRange: null,
+  wantsNextEvent: false,
+};
+
+/**
+ * Reads the model's JSON. The JSON schema cannot require a non-empty, short `actions` list, and
+ * for small talk ("thank you") the model often returns `actions: []`. Repair instead of reject:
+ * no usable action means a chat reply, and raw JSON is never shown to the user.
+ */
+export function parseExtraction(text: string): LlmExtraction {
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    // Plain text is a usable answer; broken JSON is not.
+    const trimmed = text.trim();
+    const looksLikeJson = trimmed.startsWith("{") || trimmed.startsWith("[");
+    return { actions: [CHAT_ACTION], reply: looksLikeJson ? "" : trimmed };
+  }
+  const object = typeof data === "object" && data !== null ? (data as Record<string, unknown>) : {};
+  const actions = (Array.isArray(object.actions) ? object.actions : [])
+    .flatMap((a) => {
+      const parsed = LlmActionSchema.safeParse(a);
+      return parsed.success ? [parsed.data] : [];
+    })
+    .slice(0, 3);
+  return {
+    actions: actions.length > 0 ? actions : [CHAT_ACTION],
+    reply: typeof object.reply === "string" ? object.reply : "",
+  };
+}
+
 const nullable = (schema: object) => ({ anyOf: [{ type: "null" }, schema] });
 
 /** JSON Schema for Groq strict mode: every field required, no additional properties. */

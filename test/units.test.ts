@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { APIError } from "groq-sdk";
+
 import { loadConfig } from "../src/config.js";
+import { GroqLlm } from "../src/llm.js";
 import { detectLanguage, detectScript } from "../src/language.js";
 import { buildSystemPrompt } from "../src/prompt.js";
 import { sanitizeReply } from "../src/reply.js";
@@ -161,5 +164,45 @@ describe("config", () => {
       "2",
     );
     assert.equal(loadConfig({ GROQ_API_KEY: "k" }).TRUST_PROXY, undefined);
+  });
+});
+
+describe("GroqLlm json_validate_failed handling", () => {
+  const rejected = (failedGeneration: string) =>
+    APIError.generate(
+      400,
+      { error: { message: "Failed to generate JSON", code: "json_validate_failed", failed_generation: failedGeneration } },
+      "400",
+      new Headers(),
+    );
+  const schema = { name: "nexis_intent", schema: {} };
+  /** A GroqLlm whose HTTP call is replaced by a queue of outcomes. */
+  const fakeGroq = (outcomes: (Error | string)[]) => {
+    const llm = new GroqLlm({ apiKey: "k", model: "test-model", timeoutMs: 1000, maxRetries: 0, maxCompletionTokens: 64 });
+    let calls = 0;
+    Object.assign(llm, {
+      request: async () => {
+        const next = outcomes[calls++];
+        if (next instanceof Error) throw next;
+        return { text: next, model: "test-model" };
+      },
+    });
+    return { llm, calls: () => calls };
+  };
+
+  it("uses the model's plain-text answer after one retry", async () => {
+    const { llm, calls } = fakeGroq([rejected("I'm good, thanks for asking!"), rejected("I'm good, thanks!")]);
+    const result = await llm.complete([], undefined, schema);
+    assert.equal(result.text, "I'm good, thanks!");
+    assert.equal(calls(), 2);
+  });
+  it("retries empty generations twice, then fails", async () => {
+    const { llm, calls } = fakeGroq([rejected(""), rejected(""), rejected("")]);
+    await assert.rejects(llm.complete([], undefined, schema));
+    assert.equal(calls(), 3);
+  });
+  it("returns valid JSON from a retry", async () => {
+    const { llm } = fakeGroq([rejected(""), '{"actions":[],"reply":"Hi"}']);
+    assert.equal((await llm.complete([], undefined, schema)).text, '{"actions":[],"reply":"Hi"}');
   });
 });

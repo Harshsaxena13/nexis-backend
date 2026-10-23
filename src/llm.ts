@@ -134,12 +134,26 @@ export function mapProviderError(error: unknown): UpstreamError {
   );
 }
 
-function isJsonValidateFailure(error: unknown): boolean {
+type JsonValidateBody = { error?: { code?: string; failed_generation?: unknown } } | undefined;
+
+function jsonValidateBody(error: unknown): JsonValidateBody | null {
   const cause = error instanceof UpstreamError ? error.cause : error;
-  return (
-    cause instanceof BadRequestError &&
-    (cause.error as { error?: { code?: string } } | undefined)?.error?.code === "json_validate_failed"
-  );
+  if (!(cause instanceof BadRequestError)) return null;
+  const body = cause.error as JsonValidateBody;
+  return body?.error?.code === "json_validate_failed" ? body : null;
+}
+
+function isJsonValidateFailure(error: unknown): boolean {
+  return jsonValidateBody(error) !== null;
+}
+
+/**
+ * The text Groq rejected in a json_validate_failed error. For small talk the model sometimes
+ * answers in plain text instead of JSON; that text is still the answer.
+ */
+export function failedGeneration(error: unknown): string | null {
+  const text = jsonValidateBody(error)?.error?.failed_generation;
+  return typeof text === "string" && text.trim() ? text.trim() : null;
 }
 
 export interface GroqLlmOptions {
@@ -170,16 +184,22 @@ export class GroqLlm implements LlmClient {
       return await this.request(messages, signal, jsonSchema);
     } catch (error) {
       // Groq strict mode intermittently returns 400 json_validate_failed (often with an
-      // empty generation) even for prompts that succeed on the next attempt. Retry twice.
+      // empty generation) even for prompts that succeed on the next attempt. Retry twice,
+      // but only once when the model keeps answering in plain text: it rarely changes its mind.
       let lastError = error;
       for (let attempt = 0; attempt < 2; attempt++) {
         if (!jsonSchema || !isJsonValidateFailure(lastError) || signal?.aborted) break;
+        if (attempt > 0 && failedGeneration(lastError)) break;
         try {
           return await this.request(messages, signal, jsonSchema);
         } catch (retryError) {
           lastError = retryError;
         }
       }
+      // Hand the rejected text to the caller, which uses plain text as a chat reply and never
+      // shows broken JSON.
+      const text = jsonSchema ? failedGeneration(lastError) : null;
+      if (text) return { text, model: this.options.model };
       throw lastError;
     }
   }

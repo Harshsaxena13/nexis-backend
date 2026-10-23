@@ -22,7 +22,7 @@ import {
   type LlmMessage,
 } from "./llm.js";
 import { runAssist } from "./assist.js";
-import { EXTRACTION_JSON_SCHEMA, LlmExtractionSchema, type LlmExtraction } from "./intents.js";
+import { EXTRACTION_JSON_SCHEMA, parseExtraction } from "./intents.js";
 import { buildSystemPrompt, buildTurnNote } from "./prompt.js";
 import { OpenMeteoProvider, type WeatherProvider } from "./weather.js";
 import { sanitizeReply } from "./reply.js";
@@ -51,30 +51,6 @@ export interface AppDeps {
   /** Real forecasts come from here; tests pass a fake. */
   weather?: WeatherProvider;
   log?: (entry: Record<string, unknown>) => void;
-}
-
-/** Strict structured output should always parse; if it ever doesn't, fall back to plain chat. */
-function parseExtraction(text: string): LlmExtraction {
-  try {
-    const parsed = LlmExtractionSchema.safeParse(JSON.parse(text));
-    if (parsed.success) return parsed.data;
-  } catch {
-    // Not JSON.
-  }
-  return {
-    actions: [
-      {
-        type: "chat",
-        location: null,
-        date: { kind: "unspecified", weekday: null, isoDate: null, offsetDays: null },
-        time: { said: false, hour: 0, minute: 0, meridiem: "none", partOfDay: "none" },
-        reminderText: null,
-        calendarRange: null,
-        wantsNextEvent: false,
-      },
-    ],
-    reply: text,
-  };
 }
 
 class HttpError extends Error {

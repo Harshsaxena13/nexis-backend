@@ -12,7 +12,7 @@ Rules for the "reply" field:
 - You cannot look up other live information such as news, prices or scores, or send messages. Say so briefly if asked.
 - Use the earlier conversation for context, but do not repeat earlier answers.`;
 
-const EXTRACTION = `Return JSON with "actions" (one per request in the latest message, at most 3, in the order asked) and "reply".
+const EXTRACTION = `Return JSON with "actions" (one per request in the latest message, at least 1 and at most 3, in the order asked) and "reply". Greetings, thanks, apologies and small talk are one chat action, never an empty list.
 Action types:
 - weather: forecast, temperature or rain questions. location.name: the place the user named, in its official English spelling as used by GeoNames (for example Bengaluru for Bangalore, Mumbai for Bombay, Gurugram for Gurgaon), even if several places share that name. location.region: the state, province or region if the user named one in this request or a follow-up turn, else null. location.countryCode: ISO 3166-1 alpha-2 code if the country is clear (for example "IN"), else null. location is null only if no place was said at all; never invent a place the user did not say.
 - set_reminder: reminderText is a short description of what to remind about, in the user's words (for example "Meeting"), without the date or time; null if not said.

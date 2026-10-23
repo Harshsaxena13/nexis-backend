@@ -406,6 +406,23 @@ describe("POST /chat — structured intents", () => {
     assert.match(llm.calls[0][0].content, /Friday 2026-10-23 15:45 \(Asia\/Kolkata\)/);
   });
 
+  it("answers small talk when the model returns no actions, never raw JSON", async () => {
+    const { chat, llm } = setup();
+    llm.replies.push(extraction([], "You're welcome! Happy to help."));
+    const res = await chat({ text: "Thanku Nexis" });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.reply.text, "You're welcome! Happy to help.");
+    assert.equal(res.body.result.kind, "chat");
+  });
+
+  it("does not show broken JSON as a reply", async () => {
+    const { chat, llm } = setup();
+    llm.replies.push('{"actions": [{"type": "chat"');
+    const res = await chat({ text: "Sorry nexis" });
+    assert.equal(res.status, 502);
+    assert.equal(res.body.error.code, "UPSTREAM_ERROR");
+  });
+
   it("returns a clarification question as the reply", async () => {
     const { chat, llm } = setup();
     llm.replies.push(extraction([{ ...base, type: "set_alarm" }]));

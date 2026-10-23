@@ -7,6 +7,7 @@ import {
   correctDateFromText,
   LlmExtractionSchema,
   normalizeDate,
+  parseExtraction,
   normalizeTime,
   type LlmAction,
   type LlmExtraction,
@@ -325,5 +326,26 @@ describe("formatWeather", () => {
     assert.equal(formatWeather(report, "en", "devanagari"), "On Sunday, 25 October in Bengaluru, Karnataka: thunderstorm, 20 to 24°C, with a 78% chance of rain.");
     assert.equal(formatWeather(report, "hinglish", "devanagari"), "परसों Bengaluru, Karnataka में thunderstorm रहेगा, temperature 20 से 24°C, बारिश का chance 78% है।");
     assert.equal(formatWeather(report, "hinglish", "roman"), "Parson Bengaluru, Karnataka mein thunderstorm rahega, temperature 20 se 24°C, baarish ka chance 78% hai.");
+  });
+});
+
+describe("parseExtraction", () => {
+  it("treats an empty actions list as chat and keeps the reply", () => {
+    const parsed = parseExtraction(JSON.stringify({ actions: [], reply: "No worries at all." }));
+    assert.deepEqual(parsed.actions.map((a) => a.type), ["chat"]);
+    assert.equal(parsed.reply, "No worries at all.");
+  });
+  it("keeps valid actions, drops invalid ones and caps at three", () => {
+    const parsed = parseExtraction(
+      JSON.stringify({
+        actions: [{ type: "teleport" }, action({ type: "weather" }), action({ type: "chat" }), action({ type: "set_alarm" }), action({ type: "calendar_query" })],
+        reply: "",
+      }),
+    );
+    assert.deepEqual(parsed.actions.map((a) => a.type), ["weather", "chat", "set_alarm"]);
+  });
+  it("uses plain text as the reply but never broken JSON", () => {
+    assert.equal(parseExtraction("Hello there!").reply, "Hello there!");
+    assert.equal(parseExtraction('{"actions": [').reply, "");
   });
 });
